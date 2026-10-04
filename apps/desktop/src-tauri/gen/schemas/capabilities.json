@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Skill Atlas desktop permissions","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","opener:allow-open-path","clipboard-manager:allow-write-text"]}}

@@ -1,6 +1,13 @@
 node_modules/
 dist/
+target/
+apps/desktop/src-tauri/target/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 *.local
 .DS_Store
 Thumbs.db
+.playwright-cli/
+output/
 

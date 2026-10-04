@@ -1,0 +1,41 @@
+name: Release Windows preview
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: apps/desktop/src-tauri }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm tauri:build
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          $installer = Get-ChildItem -LiteralPath apps/desktop/src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not produced' }
+          Copy-Item -LiteralPath $installer.FullName -Destination release-assets/Skill-Atlas-x64-setup.exe
+          Copy-Item -LiteralPath THIRD-PARTY-LICENSES.md -Destination release-assets/THIRD-PARTY-LICENSES.md
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath release-assets/Skill-Atlas-x64-setup.exe).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath release-assets/SHA256SUMS.txt -Value "$hash  Skill-Atlas-x64-setup.exe" -Encoding utf8NoBOM
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+          files: release-assets/*

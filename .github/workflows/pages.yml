@@ -3,6 +3,8 @@ name: Deploy website
 on:
   push:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -27,13 +29,31 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - name: Refresh release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          if release_json=$(gh api "repos/$REPOSITORY/releases/latest" 2>/dev/null); then
+            tag=$(jq -r '.tag_name' <<<"$release_json")
+            date=$(jq -r '.published_at[0:10]' <<<"$release_json")
+            bytes=$(jq -r '.assets[] | select(.name == "Skill-Atlas-x64-setup.exe") | .size' <<<"$release_json")
+            size=$(awk -v bytes="$bytes" 'BEGIN { printf "%.2f MiB", bytes / 1048576 }')
+            mkdir -p .release-meta
+            gh release download "$tag" --repo "$REPOSITORY" --pattern SHA256SUMS.txt --dir .release-meta
+            sha=$(awk '$2 == "Skill-Atlas-x64-setup.exe" { print $1 }' .release-meta/SHA256SUMS.txt)
+            jq -n --arg version "$tag" --arg publishedAt "$date" --arg size "$size" --arg sha256 "$sha" \
+              '{version:$version,publishedAt:$publishedAt,size:$size,sha256:$sha256,requirements:"Windows 10 1809 或更高版本，x64，当前用户安装",changes:["查看 GitHub Releases 获取本版完整变更记录"]}' \
+              > apps/website/public/release.json
+          fi
+      - run: pnpm build:website
         env:
           VITE_GITHUB_REPOSITORY: ${{ github.repository }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: apps/website/dist
 
   deploy:
     environment:
