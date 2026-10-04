@@ -40,12 +40,11 @@ jobs:
             date=$(jq -r '.published_at[0:10]' <<<"$release_json")
             bytes=$(jq -r '.assets[] | select(.name == "Skill-Atlas-x64-setup.exe") | .size' <<<"$release_json")
             size=$(awk -v bytes="$bytes" 'BEGIN { printf "%.2f MiB", bytes / 1048576 }')
-            mkdir -p .release-meta
-            gh release download "$tag" --repo "$REPOSITORY" --pattern SHA256SUMS.txt --dir .release-meta
-            sha=$(awk '$2 == "Skill-Atlas-x64-setup.exe" { print $1 }' .release-meta/SHA256SUMS.txt)
-            jq -n --arg version "$tag" --arg publishedAt "$date" --arg size "$size" --arg sha256 "$sha" \
-              '{version:$version,publishedAt:$publishedAt,size:$size,sha256:$sha256,requirements:"Windows 10 1809 或更高版本，x64，当前用户安装",changes:["查看 GitHub Releases 获取本版完整变更记录"]}' \
-              > apps/website/public/release.json
+            sha=$(jq -r '.assets[] | select(.name == "Skill-Atlas-x64-setup.exe") | .digest // "" | sub("^sha256:"; "")' <<<"$release_json")
+            jq --arg version "$tag" --arg publishedAt "$date" --arg size "$size" --arg sha256 "$sha" \
+              '.version=$version | .publishedAt=$publishedAt | .size=$size | .sha256=$sha256' \
+              apps/website/public/release.json > release.json.tmp
+            mv release.json.tmp apps/website/public/release.json
           fi
       - run: pnpm build:website
         env:
