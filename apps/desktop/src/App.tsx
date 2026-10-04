@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise, Brain, CheckCircle, Clipboard, Code, FolderOpen, Funnel,
-  Gear, GitDiff, GridFour, HardDrives, Heartbeat, MagnifyingGlass, Path,
-  Plus, Robot, ShieldWarning, SidebarSimple, Sparkle, Stack, Tag, Warning,
+  Gear, GitDiff, Globe, GridFour, HardDrives, Heartbeat, MagnifyingGlass, Path,
+  Plus, Robot, ShieldWarning, SidebarSimple, Sparkle, Stack, Tag, Trash, Warning,
+  ArrowSquareOut,
   X,
 } from "@phosphor-icons/react";
-import type { AiSettings, DashboardSummary, SkillAsset, SkillCategory, SkillDetail, SkillQuery } from "@skill-atlas/contracts";
+import type { AiModelProfile, AiSettings, DashboardSummary, OnlineSkillResult, SkillAsset, SkillCategory, SkillDetail, SkillQuery } from "@skill-atlas/contracts";
 import { SKILL_CATEGORIES } from "@skill-atlas/contracts";
 import { api } from "./api";
 
-type NavView = "library" | "agents" | "conflicts" | "health" | "categories";
+type NavView = "library" | "agents" | "conflicts" | "health" | "categories" | "discover";
 type DetailTab = "overview" | "manifest" | "files";
 
 const categoryShort: Record<SkillCategory, string> = {
@@ -26,6 +27,13 @@ function healthLabel(health: SkillAsset["health"]) {
   return health === "healthy" ? "健康" : health === "attention" ? "需关注" : "有错误";
 }
 
+function chineseError(reason: unknown, fallback = "操作失败") {
+  const message = reason instanceof Error ? reason.message : String(reason ?? "");
+  if (/database is (locked|busy)/i.test(message)) return "本地索引正在更新，请稍后重试。";
+  if (/network|fetch|connect|timeout/i.test(message)) return "网络连接失败，请检查模型服务与网络设置。";
+  return message || fallback;
+}
+
 export default function App() {
   const [view, setView] = useState<NavView>("library");
   const [query, setQuery] = useState<SkillQuery>({ pageSize: 100 });
@@ -36,6 +44,7 @@ export default function App() {
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState({ value: 0, currentRoot: 0, totalRoots: 0 });
   const activeScan = useRef<string | undefined>(undefined);
   const [notice, setNotice] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -53,7 +62,7 @@ export default function App() {
       const [result, nextSummary] = await Promise.all([api.listSkills(effectiveQuery), api.dashboardSummary()]);
       setAssets(result.items); setSummary(nextSummary);
       setSelectedId(current => result.items.some(item => item.id === current) ? current : result.items[0]?.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "加载失败"); }
+    } catch (error) { setNotice(chineseError(error, "加载本地索引失败。")); }
     finally { setLoading(false); }
   }, [effectiveQuery]);
 
@@ -68,30 +77,40 @@ export default function App() {
         void load();
         if (event.payload.scanId === activeScan.current) {
           setScanning(false); activeScan.current = undefined;
+          setScanProgress({ value: 100, currentRoot: 0, totalRoots: 0 });
           setNotice(`扫描完成：${event.payload.assets ?? 0} 个资产，${event.payload.installations ?? 0} 个安装实例，用时 ${event.payload.durationMs ?? 0} ms`);
         }
       });
       unlistenFailed = await listen<{ scanId: string; error: string }>("scan://failed", event => {
-        if (event.payload.scanId === activeScan.current) { setScanning(false); activeScan.current = undefined; setNotice(event.payload.error); }
+        if (event.payload.scanId === activeScan.current) { setScanning(false); activeScan.current = undefined; setNotice(`扫描失败：${chineseError(event.payload.error, "请稍后重试。")}`); }
       });
-      unlistenProgress = await listen<{ scanId: string; progress: number }>("scan://progress", event => {
-        if (event.payload.scanId === activeScan.current) setNotice(`正在扫描批准的根目录：${event.payload.progress}%`);
+      unlistenProgress = await listen<{ scanId: string; progress: number; currentRoot?: number; totalRoots?: number }>("scan://progress", event => {
+        if (event.payload.scanId === activeScan.current) setScanProgress({ value: event.payload.progress, currentRoot: event.payload.currentRoot ?? 0, totalRoots: event.payload.totalRoots ?? 0 });
       });
     });
     return () => { window.clearTimeout(retry); unlisten?.(); unlistenFailed?.(); unlistenProgress?.(); };
   }, [load]);
   useEffect(() => {
     if (!selectedId) { setDetail(undefined); return; }
-    void api.getSkillDetail(selectedId).then(setDetail).catch(error => setNotice(String(error)));
+    void api.getSkillDetail(selectedId).then(setDetail).catch(error => setNotice(chineseError(error, "读取 Skill 详情失败。")));
   }, [selectedId]);
 
   async function scan() {
-    setScanning(true); setNotice(undefined);
+    setScanning(true); setScanProgress({ value: 0, currentRoot: 0, totalRoots: 0 }); setNotice(undefined);
     try {
       activeScan.current = await api.scanRoots();
       setNotice("扫描任务已启动");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "扫描失败"); }
-    if (!api.isTauri()) { setScanning(false); await load(); }
+    } catch (error) { setScanning(false); setNotice(chineseError(error, "扫描失败。")); }
+    if (!api.isTauri()) {
+      setScanProgress({ value: 46, currentRoot: 1, totalRoots: 3 });
+      await new Promise(resolve => window.setTimeout(resolve, 180));
+      setScanProgress({ value: 82, currentRoot: 2, totalRoots: 3 });
+      await new Promise(resolve => window.setTimeout(resolve, 180));
+      setScanProgress({ value: 100, currentRoot: 3, totalRoots: 3 });
+      await load();
+      activeScan.current = undefined; setScanning(false);
+      setNotice("扫描完成：浏览器预览数据已刷新");
+    }
   }
 
   async function cancelScan() {
@@ -106,7 +125,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={scanning ? "app-shell scanning" : "app-shell"}>
       <header className="topbar" data-tauri-drag-region>
         <div className="brand"><img src="/app-icon-source.png" alt="" /><strong>Skill Atlas</strong><span className="read-only">只读模式</span></div>
         <div className="top-actions">
@@ -115,6 +134,7 @@ export default function App() {
           <button className="icon-button" aria-label="设置" onClick={() => setSettingsOpen(true)}><Gear size={19} /></button>
         </div>
       </header>
+      {scanning && <div className="scan-progress" role="progressbar" aria-label="Skill 扫描进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={scanProgress.value}><div className="scan-progress-copy"><span>正在扫描本地 Skill</span><b>{scanProgress.totalRoots > 0 ? `目录 ${Math.min(scanProgress.currentRoot + 1, scanProgress.totalRoots)}/${scanProgress.totalRoots}` : "正在准备"}</b><strong>{scanProgress.value}%</strong></div><div className="scan-progress-track"><i style={{ transform: `scaleX(${scanProgress.value / 100})` }} /></div></div>}
 
       <div className="workspace">
         <aside className="sidebar">
@@ -124,6 +144,7 @@ export default function App() {
             <NavButton active={view === "categories"} icon={<Tag />} label="分类" onClick={() => setView("categories")} />
             <NavButton active={view === "conflicts"} icon={<GitDiff />} label="冲突" count={summary?.conflicts} tone="danger" onClick={() => { setView("conflicts"); setQuery(q => ({ ...q, conflictsOnly: true })); }} />
             <NavButton active={view === "health"} icon={<Heartbeat />} label="健康检查" count={summary?.findings} tone="warning" onClick={() => { setView("health"); setQuery(q => ({ ...q, health: "attention" })); }} />
+            <NavButton active={view === "discover"} icon={<Globe />} label="联网发现" onClick={() => setView("discover")} />
           </nav>
 
           <div className="sidebar-section">
@@ -139,13 +160,12 @@ export default function App() {
           <div className="sidebar-footer"><ShieldWarning size={16} /><span>不会修改 Skill 文件</span></div>
         </aside>
 
-        <section className="library-panel">
+        {view === "discover" ? <OnlineDiscovery onNotice={setNotice} /> : <section className="library-panel">
           <div className="panel-toolbar">
             <div className="search"><MagnifyingGlass size={17} /><input value={query.search ?? ""} onChange={event => setQuery(q => ({ ...q, search: event.target.value }))} placeholder="搜索名称、用途、标签或路径" aria-label="搜索 Skill" /></div>
             <button className="filter-button" aria-label="过滤器"><Funnel size={17} /><span>{assets.length}</span></button>
           </div>
 
-          {notice && <div className="notice"><CheckCircle size={16} /><span>{notice}</span><button aria-label="关闭通知" onClick={() => setNotice(undefined)}><X size={14} /></button></div>}
           <div className="list-heading"><div><h1>{view === "conflicts" ? "内容冲突" : view === "health" ? "健康检查" : "Skill 资产"}</h1><p>{summary ? `${summary.assets} 个逻辑资产，${summary.installations} 个安装实例` : "正在读取本地索引"}</p></div><SidebarSimple size={18} /></div>
 
           <div className="skill-list" aria-live="polite">
@@ -157,10 +177,10 @@ export default function App() {
               </button>
             ))}
           </div>
-        </section>
+        </section>}
 
         <aside className="inspector">
-          {detail ? <>
+          {view === "discover" ? <div className="no-selection"><Globe size={30} /><p>搜索结果来自模型联网检索，不会自动安装或写入本地索引。</p></div> : detail ? <>
             <div className="inspector-head"><div className="large-glyph"><Code size={24} weight="bold" /></div><div><div className="eyeline">{detail.category}</div><h2>{detail.name}</h2></div></div>
             <p className="description">{detail.description || "未提供描述"}</p>
             <div className="inspector-actions"><button className="button primary compact" onClick={() => setClassifyOpen(true)}><Sparkle size={15} />AI 分类</button><button className="button quiet compact" onClick={() => detail.installations[0] && void api.reveal(detail.installations[0].displayPath)}><FolderOpen size={15} />打开目录</button></div>
@@ -178,6 +198,7 @@ export default function App() {
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {classifyOpen && detail && <ClassificationModal detail={detail} onClose={() => setClassifyOpen(false)} onSaved={async () => { setClassifyOpen(false); await load(); if (selectedId) setDetail(await api.getSkillDetail(selectedId)); }} />}
+      {notice && <div className={scanning ? "global-notice below-progress" : "global-notice"} role="status"><CheckCircle size={16} /><span>{notice}</span><button aria-label="关闭通知" onClick={() => setNotice(undefined)}><X size={14} /></button></div>}
     </div>
   );
 }
@@ -195,23 +216,48 @@ function Overview({ detail, onCopy }: { detail: SkillDetail; onCopy: (path: stri
   </>;
 }
 
+function OnlineDiscovery({ onNotice }: { onNotice: (message: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [settings, setSettings] = useState<AiSettings>();
+  const [profileId, setProfileId] = useState("");
+  const [results, setResults] = useState<OnlineSkillResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { void api.getAiSettings().then(value => { setSettings(value); setProfileId(value.activeProfileId); }).catch(reason => setError(chineseError(reason, "读取模型配置失败。"))); }, []);
+  async function search() {
+    if (!query.trim()) { setError("请输入想查找的 Skill 用途或关键词。"); return; }
+    setSearching(true); setError(""); setResults([]);
+    try { const items = await api.searchOnline(query.trim(), profileId); setResults(items); onNotice(`联网搜索完成：找到 ${items.length} 个可核验结果。`); }
+    catch (reason) { setError(chineseError(reason, "联网搜索失败。")); }
+    finally { setSearching(false); }
+  }
+  return <section className="library-panel discovery-panel"><div className="discovery-head"><div><span>模型联网搜索</span><h1>发现公开 Skill</h1><p>搜索词会发送给所选模型。结果不会自动安装，也不会写入本地资产库。</p></div><Globe size={28} /></div><div className="discovery-controls"><div className="search large"><MagnifyingGlass size={17} /><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !searching) void search(); }} placeholder="例如：适合 React 可访问性审查的 Skill" aria-label="联网搜索 Skill" /></div><select value={profileId} onChange={event => setProfileId(event.target.value)} aria-label="搜索模型">{settings?.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name} · {profile.model || "未配置"}</option>)}</select><button className="button primary" disabled={searching || !profileId} onClick={() => void search()}><Globe size={16} />{searching ? "模型正在搜索" : "确认联网搜索"}</button></div>{error && <div className="discovery-error" role="alert"><Warning size={17} /><span>{error}</span></div>}<div className="online-results" aria-live="polite">{searching ? <SkeletonList /> : results.length > 0 ? results.map(result => <article className="online-result" key={`${result.name}-${result.sourceUrl}`}><div className="online-result-head"><div><h2>{result.name}</h2>{result.author && <span>{result.author}</span>}</div><button className="icon-button" aria-label={`打开 ${result.name} 来源`} onClick={() => void api.openUrl(result.sourceUrl)}><ArrowSquareOut size={17} /></button></div><p>{result.description}</p><small>{result.whyRelevant}</small><div className="tags">{result.tags.map(tag => <span key={tag}>{tag}</span>)}</div><button className="source-link" onClick={() => void api.openUrl(result.sourceUrl)}>{result.sourceUrl}</button></article>) : <div className="discovery-empty"><Globe size={36} /><h2>通过模型搜索公开 Skill</h2><p>选择已配置的搜索模型，输入用途、技术栈或工作场景。每条结果都必须包含可点击来源。</p></div>}</div></section>;
+}
+
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [settings, setSettings] = useState<AiSettings>({ baseUrl: "", model: "", customHeaders: {}, hasApiKey: false });
+  const [settings, setSettings] = useState<AiSettings>({ activeProfileId: "openai-default", profiles: [{ id: "openai-default", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-5.5", apiMode: "responses-web-search", customHeaders: {}, hasApiKey: false }] });
   const [apiKey, setApiKey] = useState("");
   const [headersJson, setHeadersJson] = useState("{}");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  useEffect(() => { void api.getAiSettings().then(value => { setSettings(value); setHeadersJson(JSON.stringify(value.customHeaders, null, 2)); }); }, []);
+  const active = settings.profiles.find(profile => profile.id === settings.activeProfileId) ?? settings.profiles[0];
+  useEffect(() => { void api.getAiSettings().then(value => { setSettings(value); const profile = value.profiles.find(item => item.id === value.activeProfileId) ?? value.profiles[0]; setHeadersJson(JSON.stringify(profile?.customHeaders ?? {}, null, 2)); }); }, []);
+  function selectProfile(id: string) { const profile = settings.profiles.find(item => item.id === id); setSettings(value => ({ ...value, activeProfileId: id })); setHeadersJson(JSON.stringify(profile?.customHeaders ?? {}, null, 2)); setApiKey(""); setError(""); }
+  function updateProfile(patch: Partial<AiModelProfile>) { setSettings(value => ({ ...value, profiles: value.profiles.map(profile => profile.id === value.activeProfileId ? { ...profile, ...patch } : profile) })); }
+  function addProfile() { const id = `model-${Date.now()}`; const profile: AiModelProfile = { id, name: `模型 ${settings.profiles.length + 1}`, baseUrl: "https://api.openai.com/v1", model: "", apiMode: "chat-completions", customHeaders: {}, hasApiKey: false }; setSettings(value => ({ profiles: [...value.profiles, profile], activeProfileId: id })); setHeadersJson("{}"); setApiKey(""); }
+  function removeProfile() { if (!active || settings.profiles.length <= 1) return; const remaining = settings.profiles.filter(profile => profile.id !== active.id); setSettings({ profiles: remaining, activeProfileId: remaining[0].id }); setHeadersJson(JSON.stringify(remaining[0].customHeaders, null, 2)); setApiKey(""); }
   async function save() {
     setError("");
     try {
       const parsed = JSON.parse(headersJson) as unknown;
       if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" || Object.values(parsed).some(value => typeof value !== "string")) throw new Error("自定义请求头必须是字符串键值的 JSON 对象。");
-      await api.saveAiSettings({ ...settings, customHeaders: parsed as Record<string, string> }, apiKey || undefined);
+      if (!active) throw new Error("未找到当前模型配置。");
+      const next = { ...settings, profiles: settings.profiles.map(profile => profile.id === active.id ? { ...profile, customHeaders: parsed as Record<string, string> } : profile) };
+      await api.saveAiSettings(next, active.id, apiKey || undefined); setSettings(next);
       setSaved(true); window.setTimeout(() => setSaved(false), 1800);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "设置保存失败。"); }
   }
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><span>设置</span><h2 id="settings-title">AI 分类服务</h2></div><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={18} /></button></div><p className="modal-copy">使用 OpenAI-compatible 接口。API Key 只保存在系统凭据库，不写入索引或日志。</p><label>Base URL<input value={settings.baseUrl} onChange={event => setSettings({ ...settings, baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /></label><label>模型<input value={settings.model} onChange={event => setSettings({ ...settings, model: event.target.value })} placeholder="gpt-4.1-mini" /></label><label>API Key<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={settings.hasApiKey ? "已安全保存，留空表示不修改" : "sk-..."} /></label><label>自定义请求头 JSON<textarea value={headersJson} onChange={event => setHeadersJson(event.target.value)} spellCheck={false} rows={4} placeholder={'{"X-Organization": "team"}'} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="privacy-box"><ShieldWarning size={18} /><p>分类时会发送你确认过的完整 SKILL.md。不会发送 scripts、references 或 assets。</p></div><div className="modal-actions"><button className="button quiet" onClick={onClose}>取消</button><button className="button primary" onClick={() => void save()}>{saved ? "已保存" : "保存设置"}</button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}><div className="modal wide" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><span>设置</span><h2 id="settings-title">AI 模型连接</h2></div><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={18} /></button></div><p className="modal-copy">可保存多组模型服务。API Key 按模型分别存入系统凭据库，不进入索引、日志或前端持久化。</p><div className="model-settings"><div className="model-list"><div className="model-list-head"><b>模型</b><button className="icon-button" aria-label="添加模型" onClick={addProfile}><Plus size={15} /></button></div>{settings.profiles.map(profile => <button key={profile.id} className={profile.id === settings.activeProfileId ? "model-item active" : "model-item"} onClick={() => selectProfile(profile.id)}><span>{profile.name}</span><small>{profile.model || "未配置"}</small></button>)}</div>{active && <div className="model-form"><div className="model-form-actions"><label>配置名称<input value={active.name} onChange={event => updateProfile({ name: event.target.value })} /></label><button className="icon-button danger-button" aria-label="删除模型" disabled={settings.profiles.length <= 1} onClick={removeProfile}><Trash size={16} /></button></div><label>Base URL<input value={active.baseUrl} onChange={event => updateProfile({ baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /></label><label>模型 ID<input value={active.model} onChange={event => updateProfile({ model: event.target.value })} placeholder="gpt-5.5" /></label><label>接口模式<select value={active.apiMode} onChange={event => updateProfile({ apiMode: event.target.value as AiModelProfile["apiMode"] })}><option value="responses-web-search">Responses API + Web Search</option><option value="chat-completions">Chat Completions 搜索模型</option></select></label><label>API Key<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={active.hasApiKey ? "已安全保存，留空表示不修改" : "输入该模型的 API Key"} /></label><label>自定义请求头 JSON<textarea value={headersJson} onChange={event => setHeadersJson(event.target.value)} spellCheck={false} rows={4} placeholder={'{"X-Organization": "team"}'} /></label></div>}</div>{error && <p className="form-error" role="alert">{error}</p>}<div className="privacy-box"><ShieldWarning size={18} /><p>AI 分类发送经你确认的 SKILL.md。联网发现只发送搜索词，并要求模型返回可点击来源。</p></div><div className="modal-actions"><button className="button quiet" onClick={onClose}>取消</button><button className="button primary" onClick={() => void save()}>{saved ? "已保存" : "保存当前模型"}</button></div></div></div>;
 }
 
 function ClassificationModal({ detail, onClose, onSaved }: { detail: SkillDetail; onClose: () => void; onSaved: () => Promise<void> }) {

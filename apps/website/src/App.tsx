@@ -4,13 +4,13 @@ import { siteConfig } from "./config";
 
 const capabilities = [
   ["一个 Skill，多处安装", "相同内容自动归并，Codex、Claude Code、Cursor 等安装位置仍完整保留。"],
-  ["分类有依据", "区分规则推断、AI 分类和用户修正，每个结论都可追溯。"],
+  ["多模型 AI", "保存并切换多组 OpenAI-compatible 模型，分类结论区分规则、AI 与用户修正。"],
   ["只读扫描", "不会移动、删除、改写或执行任何 Skill 文件，索引可随时重建。"],
-  ["冲突直接可见", "识别同名异构、重复副本、断裂链接、未知来源和规范问题。"],
+  ["联网发现", "经你确认后由模型搜索公开 Skill，每条结果都附带可点击来源，不自动安装。"],
 ];
 
 interface ReleaseMeta { version: string; publishedAt: string; size: string; sha256: string; requirements: string; changes: string[] }
-const releaseFallback: ReleaseMeta = { version: "v0.1.0", publishedAt: "待发布", size: "约 5 MiB", sha256: "发布后提供", requirements: "Windows 10 1809 或更高版本，x64，当前用户安装", changes: [] };
+const releaseFallback: ReleaseMeta = { version: "v0.2.0", publishedAt: "待发布", size: "约 5 MiB", sha256: "发布后提供", requirements: "Windows 10 1809 或更高版本，x64，当前用户安装", changes: [] };
 
 export default function App() {
   const [release, setRelease] = useState(releaseFallback);
@@ -53,7 +53,7 @@ export default function App() {
         </section>
 
         <section className="product-view">
-          <div className="product-copy"><h2>重复、漂移和风险，一眼找到</h2><p>搜索名称、用途、标签和路径。详情检查器同时展示分类依据、真实路径与健康发现。</p></div>
+          <div className="product-copy"><h2>重复、漂移和风险，一眼找到</h2><p>扫描进度实时可见，结束后以中文反馈结果。详情检查器同时展示分类依据、真实路径与健康发现。</p></div>
           <div className="screenshot-frame"><img src="./product-screenshot.png" alt="Skill Atlas 桌面端资产库界面" /></div>
         </section>
 
@@ -70,7 +70,7 @@ export default function App() {
             <a className="text-link" href={siteConfig.releasesUrl}>全部版本与变更记录</a>
           </div>
           <dl className="release-meta"><div><dt>版本</dt><dd>{release.version}</dd></div><div><dt>发布日期</dt><dd>{release.publishedAt}</dd></div><div><dt>包体</dt><dd>{release.size}</dd></div><div><dt>系统要求</dt><dd>{release.requirements}</dd></div><div className="checksum"><dt>SHA-256</dt><dd>{release.sha256}</dd></div>{release.changes.length > 0 && <div className="changes"><dt>本版更新</dt><dd>{release.changes.join(" · ")}</dd></div>}</dl>
-          <div className="privacy-note"><CheckCircle size={20} weight="fill" /><p>Skill 扫描完全在本机完成。AI 分类只会在你确认后发送所选的 SKILL.md，不会发送 scripts、references 或 assets。</p></div>
+          <div className="privacy-note"><CheckCircle size={20} weight="fill" /><p>Skill 扫描完全在本机完成。AI 分类只会在你确认后发送所选的 SKILL.md；联网发现只发送你输入的搜索词。两者均不会发送 scripts、references 或 assets。</p></div>
         </section>
       </main>
 

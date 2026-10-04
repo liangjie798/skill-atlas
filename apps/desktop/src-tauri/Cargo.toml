@@ -1,6 +1,6 @@
 [package]
 name = "skill-atlas"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first, read-only Agent Skill inventory"
 authors = ["Skill Atlas contributors"]
 license = "MIT"

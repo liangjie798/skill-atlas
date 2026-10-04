@@ -1,8 +1,8 @@
 {
-  "version": "v0.1.0",
+  "version": "v0.2.0",
   "publishedAt": "2026-10-04",
-  "size": "4.95 MiB",
-  "sha256": "af63620703e51f2f20134a4efe40edc681cc91fb7345ecde0434917caffd77d9",
+  "size": "4.98 MiB",
+  "sha256": "99474844ea43ef956e36871189cc99d2f955a5614c0bfd1aa3367e0f5bbeeed5",
   "requirements": "Windows 10 1809 或更高版本，x64，当前用户安装",
-  "changes": ["本机 Skill 只读扫描与统一资产视图", "重复、冲突与健康问题识别", "本地规则与 BYOK AI 分类"]
+  "changes": ["扫描进度条与中文结果提示", "可保存和切换多组 AI 模型", "模型联网搜索公开 Skill", "修复并发扫描时数据库锁定提示"]
 }

@@ -1,5 +1,5 @@
 import type {
-  AiSettings, DashboardSummary, HealthFinding, PagedSkills, ProviderRoot,
+  AiSettings, DashboardSummary, HealthFinding, OnlineSkillResult, PagedSkills, ProviderRoot,
   SkillCategory, SkillDetail, SkillQuery,
 } from "@skill-atlas/contracts";
 
@@ -80,9 +80,14 @@ export const api = {
   async cancelScan(scanId: string): Promise<boolean> { return isTauri() ? command("cancel_scan", { scanId }) : true; },
   async setClassification(assetId: string, category: SkillCategory, tags: string[]): Promise<void> { if (isTauri()) await command("set_user_classification", { assetId, category, tags }); },
   async classify(assetIds: string[]): Promise<void> { if (isTauri()) await command("classify_skills", { assetIds, consent: { confirmed: true, includeManifestBody: true } }); },
-  async getAiSettings(): Promise<AiSettings> { return isTauri() ? command("get_ai_settings") : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", customHeaders: {}, hasApiKey: false }; },
-  async saveAiSettings(settings: AiSettings, apiKey?: string): Promise<void> { if (isTauri()) await command("save_ai_settings", { settings, apiKey }); },
+  async getAiSettings(): Promise<AiSettings> { return isTauri() ? command("get_ai_settings") : { activeProfileId: "openai-default", profiles: [{ id: "openai-default", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-5.5", apiMode: "responses-web-search", customHeaders: {}, hasApiKey: false }] }; },
+  async saveAiSettings(settings: AiSettings, profileId: string, apiKey?: string): Promise<void> { if (isTauri()) await command("save_ai_settings", { settings, profileId, apiKey }); },
+  async searchOnline(query: string, profileId?: string): Promise<OnlineSkillResult[]> {
+    if (isTauri()) return command("search_online_skills", { consent: { confirmed: true, query, profileId } });
+    return [{ name: "example-skill", description: "浏览器预览中的联网搜索示例。", sourceUrl: "https://github.com/example/example-skill", repositoryUrl: "https://github.com/example/example-skill", author: "example", whyRelevant: `与“${query}”相关`, tags: ["示例"] }];
+  },
   async addCustomRoot(path: string): Promise<void> { if (isTauri()) await command("add_custom_root", { path, provider: "custom", scope: "custom" }); },
   async reveal(path: string): Promise<void> { if (isTauri()) await command("reveal_in_file_manager", { path }); },
+  async openUrl(url: string): Promise<void> { if (isTauri()) { const { openUrl } = await import("@tauri-apps/plugin-opener"); await openUrl(url); } else window.open(url, "_blank", "noopener,noreferrer"); },
   async copyPath(path: string): Promise<void> { if (isTauri()) await command("copy_path", { path }); else await navigator.clipboard.writeText(path); },
 };

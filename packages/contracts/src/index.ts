@@ -63,8 +63,16 @@ export interface DashboardSummary {
   categories: Array<{ category: SkillCategory; count: number }>;
 }
 
-export interface AiSettings {
-  baseUrl: string; model: string; customHeaders: Record<string, string>; hasApiKey: boolean;
+export type AiApiMode = "chat-completions" | "responses-web-search";
+export interface AiModelProfile {
+  id: string; name: string; baseUrl: string; model: string; apiMode: AiApiMode;
+  customHeaders: Record<string, string>; hasApiKey: boolean;
+}
+export interface AiSettings { profiles: AiModelProfile[]; activeProfileId: string; }
+
+export interface OnlineSkillResult {
+  name: string; description: string; sourceUrl: string; repositoryUrl?: string;
+  author?: string; whyRelevant: string; tags: string[];
 }
 
 export interface ClassificationConsent { confirmed: boolean; includeManifestBody: true; }
