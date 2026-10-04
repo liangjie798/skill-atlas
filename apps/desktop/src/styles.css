@@ -156,6 +156,26 @@ button { color: inherit; }
 .danger-button:disabled { opacity: .35; cursor: not-allowed; }
 .privacy-box { display: grid; grid-template-columns: 20px 1fr; gap: 8px; padding: 10px; margin-top: 16px; border-radius: 8px; color: #9cb0a5; background: #202a24; }
 .privacy-box p { margin: 0; font-size: 10px; line-height: 1.5; }
+.provider-modal { width: min(660px, 100%); padding: 0; }
+.provider-modal .modal-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+.ai-local-note { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 8px; margin: 16px 20px 2px; padding: 10px 12px; border-radius: 8px; color: #a9d6c4; background: #123025; }
+.ai-local-note p { margin: 0; font-size: 10px; line-height: 1.5; }
+.enable-ai { display: flex !important; grid-template-columns: none !important; align-items: center; gap: 8px !important; margin: 16px 20px 2px !important; color: #d4dbd6 !important; cursor: pointer; }
+.enable-ai input { width: 15px; height: 15px !important; margin: 0; accent-color: var(--accent); }
+.provider-form { padding: 0 20px; }
+.model-fetch-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.model-fetch-row .button { min-width: 94px; }
+.compatibility-copy { margin: 7px 0 0; color: #78847c; font-size: 9px; }
+.available-models { min-height: 68px; margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
+.available-models > div:first-child { display: flex; align-items: center; justify-content: space-between; color: #aab4ad; font-size: 10px; }
+.available-models > div:first-child span { color: #69766e; font-weight: 400; }
+.model-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 142px; margin-top: 9px; overflow: auto; }
+.model-options button { min-width: 0; height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; color: #9ba69f; background: #121713; font: 9px "Cascadia Code", Consolas, monospace; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.model-options button:hover { border-color: #42564c; }.model-options button.selected { border-color: #477360; color: #d5e8df; background: #1a2a22; }.model-options button svg { flex: 0 0 auto; color: var(--accent); }
+.advanced-settings { margin-top: 13px; border-top: 1px solid var(--line); color: #7e8982; font-size: 10px; }
+.advanced-settings summary { padding-top: 12px; cursor: pointer; }.advanced-settings[open] summary { color: #b8c1bb; }
+.provider-actions { align-items: center; padding: 14px 20px 18px; margin-top: 16px; border-top: 1px solid var(--line); }
+.provider-actions > span { margin-right: auto; color: #6f7b73; font-size: 9px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .payload-preview { padding: 12px; margin-top: 14px; border: 1px solid var(--line); border-radius: 9px; background: #131815; }
 .payload-preview > div { display: flex; align-items: center; gap: 7px; color: #c3cbc6; font-size: 11px; }

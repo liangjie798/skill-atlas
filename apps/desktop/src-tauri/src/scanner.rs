@@ -264,6 +264,10 @@ fn resolve(candidates: Vec<Candidate>) -> ScanBundle {
                 None,
             ));
         }
+        let mut finding_ids = HashSet::new();
+        first
+            .findings
+            .retain(|finding| finding_ids.insert(finding.id.clone()));
         first.asset.finding_count = first.findings.len();
         first.asset.health = health_from(&first.findings);
         findings.extend(first.findings);
@@ -558,7 +562,8 @@ fn finding(
     detail: &str,
     path: Option<&Path>,
 ) -> HealthFinding {
-    let id_hash = hash_text(&format!("{asset_id}:{code}:{detail}"));
+    let finding_path = path.map(normalized).unwrap_or_default();
+    let id_hash = hash_text(&format!("{asset_id}:{code}:{detail}:{finding_path}"));
     HealthFinding {
         id: format!("finding-{}", &id_hash[..16]),
         asset_id: asset_id.into(),
@@ -616,5 +621,38 @@ mod tests {
         let result = scan(&[spec]).unwrap();
         assert_eq!(result.assets.len(), 1);
         assert_eq!(result.installations.len(), 1);
+    }
+
+    #[test]
+    fn identical_installs_produce_unique_finding_ids() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut specs = Vec::new();
+        for index in 1..=2 {
+            let root_path = temp.path().join(format!("skills-{index}"));
+            let skill_path = root_path.join("demo");
+            fs::create_dir_all(skill_path.join("scripts")).unwrap();
+            fs::write(
+                skill_path.join("SKILL.md"),
+                "---\nname: demo\ndescription: Demo skill\n---\nBody",
+            )
+            .unwrap();
+            fs::write(skill_path.join("scripts/run.js"), "console.log('demo')").unwrap();
+            specs.push(crate::providers::custom_root(
+                format!("test-{index}"),
+                root_path,
+                "custom".into(),
+                "custom".into(),
+            ));
+        }
+
+        let result = scan(&specs).unwrap();
+        let unique = result
+            .findings
+            .iter()
+            .map(|finding| finding.id.as_str())
+            .collect::<HashSet<_>>();
+        assert_eq!(unique.len(), result.findings.len());
+        let store = crate::store::Store::open(temp.path().join("index.sqlite3")).unwrap();
+        store.replace_scan(result).unwrap();
     }
 }

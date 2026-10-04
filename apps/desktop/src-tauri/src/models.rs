@@ -185,6 +185,8 @@ pub struct ClassificationConsent {
 #[serde(rename_all = "camelCase")]
 pub struct AiModelProfile {
     pub id: String,
+    #[serde(default = "default_ai_provider")]
+    pub provider: String,
     pub name: String,
     pub base_url: String,
     pub model: String,
@@ -198,8 +200,14 @@ pub struct AiModelProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub profiles: Vec<AiModelProfile>,
     pub active_profile_id: String,
+}
+
+fn default_ai_provider() -> String {
+    "custom".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise, Brain, CheckCircle, Clipboard, Code, FolderOpen, Funnel,
   Gear, GitDiff, Globe, GridFour, HardDrives, Heartbeat, MagnifyingGlass, Path,
-  Plus, Robot, ShieldWarning, SidebarSimple, Sparkle, Stack, Tag, Trash, Warning,
+  Plus, Robot, ShieldWarning, SidebarSimple, Sparkle, Stack, Tag, Warning,
   ArrowSquareOut,
   X,
 } from "@phosphor-icons/react";
@@ -23,6 +23,16 @@ const providerLabels: Record<string, string> = {
   codex: "Codex", "claude-code": "Claude Code", cursor: "Cursor", "gemini-cli": "Gemini CLI", shared: "Shared", custom: "Custom",
 };
 
+const aiProviders = [
+  { id: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-5.5", apiMode: "responses-web-search" as const },
+  { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", apiMode: "chat-completions" as const },
+  { id: "siliconflow", name: "硅基流动", baseUrl: "https://api.siliconflow.cn/v1", model: "", apiMode: "chat-completions" as const },
+  { id: "moonshot", name: "Moonshot / Kimi", baseUrl: "https://api.moonshot.cn/v1", model: "", apiMode: "chat-completions" as const },
+  { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "", apiMode: "chat-completions" as const },
+  { id: "ollama", name: "Ollama（本机）", baseUrl: "http://127.0.0.1:11434/v1", model: "", apiMode: "chat-completions" as const },
+  { id: "custom", name: "自定义 OpenAI-compatible", baseUrl: "https://", model: "", apiMode: "chat-completions" as const },
+];
+
 function healthLabel(health: SkillAsset["health"]) {
   return health === "healthy" ? "健康" : health === "attention" ? "需关注" : "有错误";
 }
@@ -30,6 +40,7 @@ function healthLabel(health: SkillAsset["health"]) {
 function chineseError(reason: unknown, fallback = "操作失败") {
   const message = reason instanceof Error ? reason.message : String(reason ?? "");
   if (/database is (locked|busy)/i.test(message)) return "本地索引正在更新，请稍后重试。";
+  if (/UNIQUE constraint failed: findings\.id/i.test(message)) return "健康检查记录重复，请升级到最新版本后重新扫描。";
   if (/network|fetch|connect|timeout/i.test(message)) return "网络连接失败，请检查模型服务与网络设置。";
   return message || fallback;
 }
@@ -235,29 +246,54 @@ function OnlineDiscovery({ onNotice }: { onNotice: (message: string) => void }) 
 }
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [settings, setSettings] = useState<AiSettings>({ activeProfileId: "openai-default", profiles: [{ id: "openai-default", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-5.5", apiMode: "responses-web-search", customHeaders: {}, hasApiKey: false }] });
+  const [settings, setSettings] = useState<AiSettings>({ enabled: true, activeProfileId: "openai-default", profiles: [{ id: "openai-default", provider: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-5.5", apiMode: "responses-web-search", customHeaders: {}, hasApiKey: false }] });
   const [apiKey, setApiKey] = useState("");
   const [headersJson, setHeadersJson] = useState("{}");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const active = settings.profiles.find(profile => profile.id === settings.activeProfileId) ?? settings.profiles[0];
   useEffect(() => { void api.getAiSettings().then(value => { setSettings(value); const profile = value.profiles.find(item => item.id === value.activeProfileId) ?? value.profiles[0]; setHeadersJson(JSON.stringify(profile?.customHeaders ?? {}, null, 2)); }); }, []);
-  function selectProfile(id: string) { const profile = settings.profiles.find(item => item.id === id); setSettings(value => ({ ...value, activeProfileId: id })); setHeadersJson(JSON.stringify(profile?.customHeaders ?? {}, null, 2)); setApiKey(""); setError(""); }
   function updateProfile(patch: Partial<AiModelProfile>) { setSettings(value => ({ ...value, profiles: value.profiles.map(profile => profile.id === value.activeProfileId ? { ...profile, ...patch } : profile) })); }
-  function addProfile() { const id = `model-${Date.now()}`; const profile: AiModelProfile = { id, name: `模型 ${settings.profiles.length + 1}`, baseUrl: "https://api.openai.com/v1", model: "", apiMode: "chat-completions", customHeaders: {}, hasApiKey: false }; setSettings(value => ({ profiles: [...value.profiles, profile], activeProfileId: id })); setHeadersJson("{}"); setApiKey(""); }
-  function removeProfile() { if (!active || settings.profiles.length <= 1) return; const remaining = settings.profiles.filter(profile => profile.id !== active.id); setSettings({ profiles: remaining, activeProfileId: remaining[0].id }); setHeadersJson(JSON.stringify(remaining[0].customHeaders, null, 2)); setApiKey(""); }
+  function selectProvider(providerId: string) {
+    const existing = settings.profiles.find(profile => profile.provider === providerId);
+    if (existing) {
+      setSettings(value => ({ ...value, activeProfileId: existing.id }));
+      setHeadersJson(JSON.stringify(existing.customHeaders ?? {}, null, 2));
+    } else {
+      const preset = aiProviders.find(provider => provider.id === providerId) ?? aiProviders.at(-1)!;
+      const profile: AiModelProfile = { id: `${providerId}-${Date.now()}`, provider: preset.id, name: preset.name, baseUrl: preset.baseUrl, model: preset.model, apiMode: preset.apiMode, customHeaders: {}, hasApiKey: false };
+      setSettings(value => ({ ...value, profiles: [...value.profiles, profile], activeProfileId: profile.id }));
+      setHeadersJson("{}");
+    }
+    setApiKey(""); setAvailableModels([]); setError(""); setSaved(false);
+  }
+  function parsedHeaders() {
+    const parsed = JSON.parse(headersJson) as unknown;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" || Object.values(parsed).some(value => typeof value !== "string")) throw new Error("自定义请求头必须是字符串键值的 JSON 对象。");
+    return parsed as Record<string, string>;
+  }
+  async function fetchModels() {
+    setError(""); setFetchingModels(true); setAvailableModels([]);
+    try {
+      if (!active) throw new Error("未找到当前模型配置。");
+      const models = await api.listAiModels({ ...active, customHeaders: parsedHeaders() }, apiKey || undefined);
+      setAvailableModels(models);
+      if (!active.model && models[0]) updateProfile({ model: models[0] });
+    } catch (reason) { setError(chineseError(reason, "获取模型失败。")); }
+    finally { setFetchingModels(false); }
+  }
   async function save() {
     setError("");
     try {
-      const parsed = JSON.parse(headersJson) as unknown;
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" || Object.values(parsed).some(value => typeof value !== "string")) throw new Error("自定义请求头必须是字符串键值的 JSON 对象。");
       if (!active) throw new Error("未找到当前模型配置。");
-      const next = { ...settings, profiles: settings.profiles.map(profile => profile.id === active.id ? { ...profile, customHeaders: parsed as Record<string, string> } : profile) };
+      const next = { ...settings, profiles: settings.profiles.map(profile => profile.id === active.id ? { ...profile, customHeaders: parsedHeaders() } : profile) };
       await api.saveAiSettings(next, active.id, apiKey || undefined); setSettings(next);
       setSaved(true); window.setTimeout(() => setSaved(false), 1800);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "设置保存失败。"); }
   }
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}><div className="modal wide" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><span>设置</span><h2 id="settings-title">AI 模型连接</h2></div><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={18} /></button></div><p className="modal-copy">可保存多组模型服务。API Key 按模型分别存入系统凭据库，不进入索引、日志或前端持久化。</p><div className="model-settings"><div className="model-list"><div className="model-list-head"><b>模型</b><button className="icon-button" aria-label="添加模型" onClick={addProfile}><Plus size={15} /></button></div>{settings.profiles.map(profile => <button key={profile.id} className={profile.id === settings.activeProfileId ? "model-item active" : "model-item"} onClick={() => selectProfile(profile.id)}><span>{profile.name}</span><small>{profile.model || "未配置"}</small></button>)}</div>{active && <div className="model-form"><div className="model-form-actions"><label>配置名称<input value={active.name} onChange={event => updateProfile({ name: event.target.value })} /></label><button className="icon-button danger-button" aria-label="删除模型" disabled={settings.profiles.length <= 1} onClick={removeProfile}><Trash size={16} /></button></div><label>Base URL<input value={active.baseUrl} onChange={event => updateProfile({ baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /></label><label>模型 ID<input value={active.model} onChange={event => updateProfile({ model: event.target.value })} placeholder="gpt-5.5" /></label><label>接口模式<select value={active.apiMode} onChange={event => updateProfile({ apiMode: event.target.value as AiModelProfile["apiMode"] })}><option value="responses-web-search">Responses API + Web Search</option><option value="chat-completions">Chat Completions 搜索模型</option></select></label><label>API Key<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={active.hasApiKey ? "已安全保存，留空表示不修改" : "输入该模型的 API Key"} /></label><label>自定义请求头 JSON<textarea value={headersJson} onChange={event => setHeadersJson(event.target.value)} spellCheck={false} rows={4} placeholder={'{"X-Organization": "team"}'} /></label></div>}</div>{error && <p className="form-error" role="alert">{error}</p>}<div className="privacy-box"><ShieldWarning size={18} /><p>AI 分类发送经你确认的 SKILL.md。联网发现只发送搜索词，并要求模型返回可点击来源。</p></div><div className="modal-actions"><button className="button quiet" onClick={onClose}>取消</button><button className="button primary" onClick={() => void save()}>{saved ? "已保存" : "保存当前模型"}</button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}><div className="modal provider-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div className="modal-head"><div><span>设置</span><h2 id="settings-title">大模型设置</h2></div><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={18} /></button></div><div className="ai-local-note"><ShieldWarning size={17} /><p>本地扫描不依赖大模型。启用后，仅在你确认分类或联网搜索时请求所选服务。</p></div><label className="enable-ai"><input type="checkbox" checked={settings.enabled} onChange={event => setSettings(value => ({ ...value, enabled: event.target.checked }))} /><span>启用大模型增强审查</span></label>{active && <div className="provider-form"><label>服务提供方<select value={active.provider} onChange={event => selectProvider(event.target.value)}>{aiProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label><label>接口地址<input value={active.baseUrl} onChange={event => updateProfile({ baseUrl: event.target.value })} placeholder="https://api.example.com/v1" /></label><label>模型名称<div className="model-fetch-row"><input value={active.model} onChange={event => updateProfile({ model: event.target.value })} placeholder="输入模型 ID 或点击获取模型" /><button className="button quiet" disabled={fetchingModels} onClick={() => void fetchModels()}>{fetchingModels ? "正在获取" : "获取模型"}</button></div></label><label>API 密钥<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={active.hasApiKey ? "已安全保存，留空表示不修改" : active.provider === "ollama" ? "本机 Ollama 无需填写" : "输入 API Key"} /></label><p className="compatibility-copy">兼容 OpenAI 请求格式。API Key 按服务商分别保存在 Windows 凭据库。</p><div className="available-models"><div><b>可用模型</b><span>{availableModels.length > 0 ? `${availableModels.length} 个` : "点击“获取模型”加载"}</span></div>{availableModels.length > 0 && <div className="model-options">{availableModels.map(model => <button key={model} className={active.model === model ? "selected" : ""} onClick={() => updateProfile({ model })}>{model}<CheckCircle size={14} weight={active.model === model ? "fill" : "regular"} /></button>)}</div>}</div><details className="advanced-settings"><summary>高级接口设置</summary><label>接口模式<select value={active.apiMode} onChange={event => updateProfile({ apiMode: event.target.value as AiModelProfile["apiMode"] })}><option value="responses-web-search">Responses API + Web Search</option><option value="chat-completions">Chat Completions</option></select></label><label>自定义请求头 JSON<textarea value={headersJson} onChange={event => setHeadersJson(event.target.value)} spellCheck={false} rows={3} /></label></details></div>}{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions provider-actions"><span>当前服务：{active?.name ?? "未配置"}</span><button className="button quiet" onClick={onClose}>取消</button><button className="button primary" onClick={() => void save()}>{saved ? "设置已保存" : "保存设置"}</button></div></div></div>;
 }
 
 function ClassificationModal({ detail, onClose, onSaved }: { detail: SkillDetail; onClose: () => void; onSaved: () => Promise<void> }) {

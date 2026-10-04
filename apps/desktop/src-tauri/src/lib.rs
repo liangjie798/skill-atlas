@@ -30,6 +30,8 @@ fn err(error: impl std::fmt::Display) -> String {
     let message = error.to_string();
     if message.contains("database is locked") || message.contains("database is busy") {
         "本地索引正在更新，请稍后重试。".into()
+    } else if message.contains("UNIQUE constraint failed: findings.id") {
+        "健康检查记录出现重复，已阻止写入；请升级到最新版本后重新扫描。".into()
     } else if message.contains("permission denied") || message.contains("Access is denied") {
         "没有权限读取该路径。".into()
     } else if message.contains("No such file") || message.contains("not found") {
@@ -260,6 +262,9 @@ async fn classify_skills(
         return Err("必须确认发送完整 SKILL.md 后才能分类。".into());
     }
     let settings = load_ai_settings(&state.store)?;
+    if !settings.enabled {
+        return Err("大模型增强功能尚未启用。".into());
+    }
     let profile = settings
         .profiles
         .iter()
@@ -323,9 +328,11 @@ fn load_ai_settings(store: &Store) -> CommandResult<AiSettings> {
             saved
                 .and_then(|value| serde_json::from_str::<LegacySettings>(&value).ok())
                 .map(|legacy| AiSettings {
+                    enabled: true,
                     active_profile_id: "openai-default".into(),
                     profiles: vec![AiModelProfile {
                         id: "openai-default".into(),
+                        provider: "openai".into(),
                         name: "OpenAI".into(),
                         base_url: legacy.base_url,
                         model: legacy.model,
@@ -337,12 +344,36 @@ fn load_ai_settings(store: &Store) -> CommandResult<AiSettings> {
         })
         .unwrap_or_else(default_ai_settings);
     for profile in &mut settings.profiles {
-        profile.has_api_key = profile_api_key(profile).is_ok()
-            || (profile.id == "openai-default"
-                && Entry::new(KEYRING_SERVICE, KEYRING_USER)
-                    .ok()
-                    .and_then(|entry| entry.get_password().ok())
-                    .is_some());
+        if profile.provider == "custom" {
+            profile.provider = if profile.base_url.contains("api.openai.com") {
+                "openai"
+            } else if profile.base_url.contains("api.deepseek.com") {
+                "deepseek"
+            } else if profile.base_url.contains("siliconflow.cn") {
+                "siliconflow"
+            } else if profile.base_url.contains("moonshot.cn") {
+                "moonshot"
+            } else if profile.base_url.contains("openrouter.ai") {
+                "openrouter"
+            } else if profile.base_url.contains("localhost")
+                || profile.base_url.contains("127.0.0.1")
+            {
+                "ollama"
+            } else {
+                "custom"
+            }
+            .into();
+        }
+        let local_service = profile.provider == "ollama"
+            || profile.base_url.starts_with("http://localhost")
+            || profile.base_url.starts_with("http://127.0.0.1");
+        profile.has_api_key = !local_service
+            && (profile_api_key(profile).is_ok()
+                || (profile.id == "openai-default"
+                    && Entry::new(KEYRING_SERVICE, KEYRING_USER)
+                        .ok()
+                        .and_then(|entry| entry.get_password().ok())
+                        .is_some()));
     }
     Ok(settings)
 }
@@ -367,15 +398,20 @@ fn save_ai_settings(
                 profile.name
             ));
         }
-        if profile.id.trim().is_empty()
-            || profile.name.trim().is_empty()
-            || profile.model.trim().is_empty()
-        {
-            return Err("模型名称、标识和模型 ID 不能为空。".into());
+        if profile.id.trim().is_empty() || profile.name.trim().is_empty() {
+            return Err("模型配置名称和标识不能为空。".into());
         }
         if profile.api_mode != "chat-completions" && profile.api_mode != "responses-web-search" {
             return Err("未知的模型接口模式。".into());
         }
+    }
+    let active = settings
+        .profiles
+        .iter()
+        .find(|profile| profile.id == settings.active_profile_id)
+        .ok_or_else(|| "未找到当前模型配置。".to_string())?;
+    if settings.enabled && active.model.trim().is_empty() {
+        return Err("启用大模型增强时必须选择或填写模型名称。".into());
     }
     if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
         Entry::new(KEYRING_SERVICE, &format!("ai-api-key:{profile_id}"))
@@ -396,6 +432,24 @@ fn save_ai_settings(
 }
 
 #[tauri::command]
+async fn list_ai_models(
+    profile: AiModelProfile,
+    api_key: Option<String>,
+) -> CommandResult<Vec<String>> {
+    if !(profile.base_url.starts_with("https://")
+        || profile.base_url.starts_with("http://localhost")
+        || profile.base_url.starts_with("http://127.0.0.1"))
+    {
+        return Err("接口地址必须使用 HTTPS，本机服务除外。".into());
+    }
+    let key = match api_key.filter(|value| !value.trim().is_empty()) {
+        Some(value) => value,
+        None => profile_api_key(&profile)?,
+    };
+    ai::list_models(&profile, &key).await.map_err(err)
+}
+
+#[tauri::command]
 async fn search_online_skills(
     state: State<'_, AppState>,
     consent: OnlineSearchConsent,
@@ -405,6 +459,9 @@ async fn search_online_skills(
         return Err("请确认联网并输入搜索需求。".into());
     }
     let settings = load_ai_settings(&state.store)?;
+    if !settings.enabled {
+        return Err("大模型增强功能尚未启用。".into());
+    }
     let selected = consent
         .profile_id
         .as_deref()
@@ -421,6 +478,12 @@ async fn search_online_skills(
 }
 
 fn profile_api_key(profile: &AiModelProfile) -> CommandResult<String> {
+    if profile.provider == "ollama"
+        || profile.base_url.starts_with("http://localhost")
+        || profile.base_url.starts_with("http://127.0.0.1")
+    {
+        return Ok(String::new());
+    }
     Entry::new(KEYRING_SERVICE, &format!("ai-api-key:{}", profile.id))
         .map_err(err)?
         .get_password()
@@ -436,9 +499,11 @@ fn profile_api_key(profile: &AiModelProfile) -> CommandResult<String> {
 
 fn default_ai_settings() -> AiSettings {
     AiSettings {
+        enabled: true,
         active_profile_id: "openai-default".into(),
         profiles: vec![AiModelProfile {
             id: "openai-default".into(),
+            provider: "openai".into(),
             name: "OpenAI".into(),
             base_url: "https://api.openai.com/v1".into(),
             model: "gpt-5.5".into(),
@@ -548,6 +613,7 @@ pub fn run() {
             classify_skills,
             get_ai_settings,
             save_ai_settings,
+            list_ai_models,
             search_online_skills,
             reveal_in_file_manager,
             copy_path

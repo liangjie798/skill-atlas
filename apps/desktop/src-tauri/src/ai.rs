@@ -79,6 +79,49 @@ pub async fn search_skills(
     Ok(results)
 }
 
+pub async fn list_models(profile: &AiModelProfile, api_key: &str) -> Result<Vec<String>> {
+    if profile.base_url.trim().is_empty() {
+        return Err(anyhow!("请先填写接口地址。"));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .default_headers(headers(profile, api_key)?)
+        .build()?;
+    let endpoint = format!("{}/models", profile.base_url.trim_end_matches('/'));
+    let response = client
+        .get(endpoint)
+        .send()
+        .await
+        .context("无法连接模型服务")?;
+    let status = response.status();
+    let response_text = response.text().await?;
+    if !status.is_success() {
+        return Err(anyhow!("获取模型失败，服务返回 HTTP {}。", status.as_u16()));
+    }
+    let envelope: serde_json::Value =
+        serde_json::from_str(&response_text).context("模型服务返回了无效 JSON")?;
+    let items = envelope
+        .get("data")
+        .or_else(|| envelope.get("models"))
+        .and_then(|value| value.as_array())
+        .context("模型服务响应中没有模型列表。")?;
+    let mut models = items
+        .iter()
+        .filter_map(|item| {
+            item.get("id")
+                .or_else(|| item.get("name"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    models.sort_by_key(|model| model.to_lowercase());
+    models.dedup();
+    if models.is_empty() {
+        return Err(anyhow!("模型服务没有返回可用模型。"));
+    }
+    Ok(models)
+}
+
 async fn request_text(
     profile: &AiModelProfile,
     api_key: &str,
@@ -165,10 +208,12 @@ async fn request_text(
 
 fn headers(profile: &AiModelProfile, api_key: &str) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {api_key}"))?,
-    );
+    if !api_key.trim().is_empty() {
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {api_key}"))?,
+        );
+    }
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     for (name, value) in &profile.custom_headers {
         if !name.eq_ignore_ascii_case("authorization") && !name.eq_ignore_ascii_case("content-type")

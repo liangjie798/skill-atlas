@@ -65,10 +65,10 @@ export interface DashboardSummary {
 
 export type AiApiMode = "chat-completions" | "responses-web-search";
 export interface AiModelProfile {
-  id: string; name: string; baseUrl: string; model: string; apiMode: AiApiMode;
+  id: string; provider: string; name: string; baseUrl: string; model: string; apiMode: AiApiMode;
   customHeaders: Record<string, string>; hasApiKey: boolean;
 }
-export interface AiSettings { profiles: AiModelProfile[]; activeProfileId: string; }
+export interface AiSettings { enabled: boolean; profiles: AiModelProfile[]; activeProfileId: string; }
 
 export interface OnlineSkillResult {
   name: string; description: string; sourceUrl: string; repositoryUrl?: string;

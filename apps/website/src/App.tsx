@@ -10,7 +10,7 @@ const capabilities = [
 ];
 
 interface ReleaseMeta { version: string; publishedAt: string; size: string; sha256: string; requirements: string; changes: string[] }
-const releaseFallback: ReleaseMeta = { version: "v0.2.0", publishedAt: "待发布", size: "约 5 MiB", sha256: "发布后提供", requirements: "Windows 10 1809 或更高版本，x64，当前用户安装", changes: [] };
+const releaseFallback: ReleaseMeta = { version: "v0.2.1", publishedAt: "待发布", size: "约 5 MiB", sha256: "发布后提供", requirements: "Windows 10 1809 或更高版本，x64，当前用户安装", changes: [] };
 
 export default function App() {
   const [release, setRelease] = useState(releaseFallback);
