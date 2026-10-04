@@ -1,8 +1,8 @@
 {
   "version": "v0.2.1",
   "publishedAt": "2026-10-04",
-  "size": "4.99 MiB",
-  "sha256": "25f4c58340f758c1a206a8c15f3b6b1b4b909f917e5ad479fe5a75a6d7e5ede1",
+  "size": "5.00 MiB",
+  "sha256": "fe502e65b6f301ba9ab56ea3e97b71f1123a8aa8a453ff09fc15a1e6956c6ae4",
   "requirements": "Windows 10 1809 或更高版本，x64，当前用户安装",
   "changes": ["修复重复健康检查 ID 导致的扫描失败", "按服务商配置大模型", "从模型服务获取可用模型列表", "支持 DeepSeek、OpenAI、硅基流动、Moonshot、OpenRouter 与 Ollama"]
 }
